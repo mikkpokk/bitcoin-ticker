@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use App\Rate;
@@ -14,11 +15,28 @@ class BitcoinTicker extends Command
     protected $description = 'Crawls latest BitCoin - EUR/USD rates and inserts to the database.';
 
     protected $default_sources = [
+        // BTC Rates
         1 => [
             'url' => 'https://blockchain.info/ticker?cors=true',
             'active' => true,
             'method' => 'block_chain_crawler',
         ],
+        2 => [
+            'url' => 'http://api.coindesk.com/v1/bpi/currentprice.json',
+            'active' => true,
+            'method' => 'coin_desk_crawler',
+        ],
+        3 => [
+            'url' => 'https://www.live-rates.com/rates',
+            'active' => true,
+            'method' => 'live_rates_crawler',
+        ],
+    ];
+
+    protected $currencies = [
+        'EUR',
+        'USD',
+        'EUR/USD',
     ];
 
     public function handle()
@@ -28,7 +46,7 @@ class BitcoinTicker extends Command
         if ($is_working) {
             $this->info('Other command is already in process.');
             $this->comment('Script goes to sleep for 950 millisecond.');
-            usleep(950);
+            usleep(950000);
             exit();
         } else {
             Cache::put('bitcoin_ticker_worker', time(), 1);
@@ -62,7 +80,7 @@ class BitcoinTicker extends Command
                             if ($info) {
                                 $method = $source->method;
 
-                                $this->$method($info);
+                                $this->$method($info, $source->id);
                             } else {
                                 $this->error('Unable to crawl info from: ' . $source->url);
                             }
@@ -81,9 +99,99 @@ class BitcoinTicker extends Command
         }
     }
 
-    protected function block_chain_crawler($info)
+    protected function block_chain_crawler($info, $source_id)
     {
+        // BTC
         $this->info('Processing info via block chain crawler..');
+
+        try {
+            $info = json_decode(trim($info), true);
+
+            if (is_array($info)) {
+                $request = new Request;
+                $request->source_id = (int) $source_id;
+                $request->source_raw = json_encode($info);
+                $request->save();
+
+                foreach ($info as $key => $params) {
+                    if (in_array(mb_strtoupper($key), $this->currencies)) {
+                        $rate = new Rate;
+                        $rate->request_id = $request->id;
+                        $rate->source_id = $source_id;
+                        $rate->currency = 'BTC/'.mb_strtoupper($key);
+                        $rate->rate = (float) $params['last'];
+                        $rate->save();
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+
+        }
+    }
+
+    protected function coin_desk_crawler($info, $source_id)
+    {
+        // BTC
+        $this->info('Processing info via coin desk crawler..');
+
+        try {
+            $info = json_decode(trim($info), true);
+
+            if (is_array($info)) {
+                $request = new Request;
+                $request->source_id = (int) $source_id;
+                $request->source_raw = json_encode($info);
+                $request->updated_at = Carbon::createFromTimestampUTC(strtotime($info['time']['updatedISO']))->format('Y-m-d H:i:s');
+                $request->save();
+
+                foreach ($info['bpi'] as $key => $params) {
+                    if (in_array(mb_strtoupper($key), $this->currencies)) {
+                        $rate = new Rate;
+                        $rate->request_id = $request->id;
+                        $rate->source_id = $source_id;
+                        $rate->currency = 'BTC/'.mb_strtoupper($key);
+                        $rate->rate = (float) $params['rate_float'];
+                        $request->updated_at = Carbon::createFromTimestampUTC(strtotime($info['time']['updatedISO']))->format('Y-m-d H:i:s');
+                        $rate->save();
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+
+        }
+    }
+
+    protected function live_rates_crawler($info, $source_id)
+    {
+        // BTC
+        $this->info('Processing info via live rates crawler..');
+
+        try {
+            $info = json_decode(trim($info), true);
+
+            if (is_array($info)) {
+                $request = new Request;
+                $request->source_id = (int) $source_id;
+                $request->source_raw = json_encode($info);
+                $request->save();
+
+                foreach ($info as $params) {
+                    if (! isset($params['error'])) {
+                        if (in_array(mb_strtoupper($params['currency']), $this->currencies)) {
+                            $rate = new Rate;
+                            $rate->request_id = $request->id;
+                            $rate->source_id = $source_id;
+                            $rate->currency = mb_strtoupper($params['currency']);
+                            $rate->rate = (float) $params['rate'];
+                            $request->updated_at = Carbon::createFromTimestampUTC($params['timestamp'])->format('Y-m-d H:i:s');
+                            $rate->save();
+                        }
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+
+        }
     }
 
     protected function update_sources_handle()
@@ -122,7 +230,7 @@ class BitcoinTicker extends Command
 
         if (count($this->default_sources)) {
             foreach ($this->default_sources as $key => $source) {
-                if (! in_array($source, $all_urls)) {
+                if (! in_array($source['url'], $all_urls)) {
                     $add_sources[$key] = [];
                     $add_sources[$key]['url'] = $source['url'];
                     $add_sources[$key]['active'] = $source['active'];
