@@ -27,7 +27,7 @@ class BitcoinTicker extends Command
             'method' => 'coin_desk_crawler',
         ],
         3 => [
-            'url' => 'https://www.live-rates.com/rates',
+            'url' => 'https://www.live-rates.com/rates?key=YOUR_KEY',
             'active' => true,
             'method' => 'live_rates_crawler',
         ],
@@ -151,7 +151,7 @@ class BitcoinTicker extends Command
                         $rate->source_id = $source_id;
                         $rate->currency = 'BTC/'.mb_strtoupper($key);
                         $rate->rate = (float) $params['rate_float'];
-                        $request->updated_at = Carbon::createFromTimestampUTC(strtotime($info['time']['updatedISO']))->format('Y-m-d H:i:s');
+                        $rate->updated_at = Carbon::createFromTimestampUTC(strtotime($info['time']['updatedISO']))->format('Y-m-d H:i:s');
                         $rate->save();
                     }
                 }
@@ -183,7 +183,6 @@ class BitcoinTicker extends Command
                             $rate->source_id = $source_id;
                             $rate->currency = mb_strtoupper($params['currency']);
                             $rate->rate = (float) $params['rate'];
-                            $request->updated_at = Carbon::createFromTimestampUTC($params['timestamp'])->format('Y-m-d H:i:s');
                             $rate->save();
                         }
                     }
